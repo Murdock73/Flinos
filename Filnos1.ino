@@ -1,166 +1,291 @@
-#include <IRremoteESP8266.h>
-#include <IRsend.h>
-#include <Tadiran.h>
+/*****************************************************************************
+  Arduino sketch to report the temperature using an ESP8266 with connected
+  Dallas DS18B20 sensor, for the Blynk system.
+  http://www.blynk.cc
+*****************************************************************************/
+
+/*
+Copyright (c) 2017 Scott Allen
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+*/
+
+#define BLYNK_DEBUG
+#define BLYNK_PRINT Serial // Comment this out to disable prints and save space
+
 #include <ESP8266WiFi.h>
-#include <stdio.h>
+#include <BlynkSimpleEsp8266.h>
+#include <OneWire.h>
+#include <DallasTemperature.h>
 
-#include "config.h"
-WiFiClient espClient;
+// You should get Auth Token in the Blynk App.
+// Go to the Project Settings (nut icon).
+char auth[] = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx";
 
+// Your WiFi credentials.
+// Set password to "" for open networks.
+char ssid[] = "myssid";
+char pass[] = "mypassword";
+
+// Temperature sensor full ID, including family code and CRC
+DeviceAddress tempSensor = { 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08 };
+
+// Alert messages
+char alertMessageLow[] = "House temperature is LOW!";
+char alertMessageHigh[] = "House temperature is HIGH!";
+
+// Pin used for the OneWire interface
+#define ONEWIRE_PIN 4
+
+OneWire oneWire(ONEWIRE_PIN);
+DallasTemperature sensors(&oneWire);
+SimpleTimer timer;
+
+// Current temperature is a global so it can used to reset min/max temperatures
+float currentTemp = 0;
+
+// Minimum and maximum temperatures are set to out of range values that will be
+// overridden the first time the actual temperature is read.
+float minTemp = 10000.0;
+float maxTemp = -10000.0;
+
+int alertTempLow, alertTempHigh;
+boolean lowAlertOn = false;
+boolean highAlertOn = false;
+
+
+// Virtual pins to send temperature reading (from device)
+#define V_PIN_TEMP_A V0 // Value - Widget must allow color change
+#define V_PIN_TEMP_B V1
+// Virtual pins for alert temperature set points (to device)
+#define V_PIN_ALERT_LOW V2
+#define V_PIN_ALERT_HIGH V3
+// Virtual pins for min/max temperatures (from device)
+#define V_PIN_TEMP_MIN V4
+#define V_PIN_TEMP_MAX V5
+// Virtual pin for min/max temperature reset (to device)
+#define V_PIN_MIN_MAX_RESET V6
+
+#undef TEMP_IN_FAHRENHEIT
+// Uncomment to use Fahrenheit or comment out for Celsius
+#define TEMP_IN_FAHRENHEIT
+
+// Hysteresis in degrees for alerts
+#define ALERT_HYSTERESIS 1
+
+// Temperature reading interval, in SECONDS
+#define READ_INTERVAL 60
+
+// Check interval for network connection, in milliseconds
+// This should be a bit shorter than the Blynk reconnect poll time, which
+// at the time of writing was 7 seconds
+#define CONNECTION_CHECK_TIME 6500
+
+// LED flash time for link down, in milliseconds
+#define LED_DISC_FLASH_TIME 2000
+
+// LED blink rate for "sensor not found" indication, in milliseconds
+#define NO_SENSOR_BLINK_SPEED 500
+
+// LED blink time for "sensor not found" indication, in milliseconds
+#define NO_SENSOR_BLINK_TIME 200
+
+// LED flash time for successful sensor read, in milliseconds
+#define LED_READ_OK_FLASH_TIME 30
+
+// LED flash time for sensor read error, in milliseconds
+#define LED_READ_ERR_FLASH_TIME 5000
+
+// Pin for LED indicator
+#define LED_PIN 2
+
+// The number of bits of temperature resolution
+// 9 = 0.5, 10 = 0.25, 11 = 0.125, 12 = 0.0625 degrees Celsius
+#define TEMPERATURE_RES_BITS 10
+
+// Temperature conversion wait time, in milliseconds
+#define READ_CONV_WAIT 800
+
+// Pin values for indicator LED on and off
+#define LED_ON LOW
+#define LED_OFF HIGH
+
+// Widget colors for alerts
+#define ALERT_COLOR_OK   "#23C48E" // Green
+#define ALERT_COLOR_LOW  "#5F7CD8" // Dark Blue
+#define ALERT_COLOR_HIGH "#D3435C" // Red
+
+//--------------------- SETUP -------------------
 void setup() {
-  // put your setup code here, to run once:
-    Serial.begin(115200);
-    WiFi.mode(WIFI_STA);
-    pinMode(STATUS_LED, OUTPUT);
-    pinMode(IR_LED_PIN, OUTPUT);
-      
+  Serial.begin(9600);
 
-    setupWifi();
+  pinMode(LED_PIN, OUTPUT);
+  indLEDoff();
 
-    digitalWrite(STATUS_LED,LOW);
-}
-
-int loopCounter = 0;
-void loop() {
-  // put your main code here, to run repeatedly:
-  Serial.print("oOo.");
-  digitalWrite(STATUS_LED,HIGH);
- 
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-
-  if(loopCounter == 5){
-    loopCounter = 0;
-    sendTempratureUpdate();
-  }
-  else {
-    loopCounter++;
-  }
-  
-  digitalWrite(STATUS_LED,LOW);
-  delay(1000);
-}
-
-void setupWifi() {
-
-  delay(10);
-  // We start by connecting to a WiFi network
-  Serial.println();
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-
-  WiFi.begin(ssid, password);
-  
-  bool wasLit = false;
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.print(".");
-  }
-  if(!wasLit){
-    digitalWrite(STATUS_LED,HIGH);
-    wasLit = true;
-  }
-  else {
-    digitalWrite(STATUS_LED,LOW);
-    wasLit = false;
-  }
-  
-  randomSeed(micros());
-
-  Serial.println("");
-  Serial.println("WiFi connected");
-  Serial.println("IP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-void reconnect() {
-  // Loop until we're reconnected
-  while (!client.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    // Create a random client ID
-    String clientId = "ESP8266Client-";
-    clientId += String(random(0xffff), HEX);
-    // Attempt to connect
-    if (client.connect(clientId.c_str(), MQTT_USERNAME,MQTT_PASS)) {
-      Serial.println("connected");
-      
-      client.subscribe(strcat(MQTT_SUBJECT,"set"));
-    } else {
-      Serial.print("failed, rc=");
-      Serial.print(client.state());
-      Serial.println(" try again in 5 seconds");
-      // Wait 5 seconds before retrying
-      delay(5000);
+  sensors.begin();
+  if (!sensors.isConnected(tempSensor)) {
+    while (true) {
+      indLEDon();
+      delay(NO_SENSOR_BLINK_TIME);
+      indLEDoff();
+      delay(NO_SENSOR_BLINK_SPEED - NO_SENSOR_BLINK_TIME);
     }
   }
+
+  // Set the resolution of the temperature readings
+  sensors.setResolution(tempSensor, TEMPERATURE_RES_BITS);
+
+  // We'll do the "wait for conversion" ourselves using a timer,
+  // to avoid the call to delay() that the library would use
+  sensors.setWaitForConversion(false);
+
+  // Start up Blynk
+  Blynk.begin(auth, ssid, pass);
+
+  // Start the interval timer that checks if the connection is up
+  timer.setInterval(CONNECTION_CHECK_TIME, connectionCheck);
+
+  // Start the timer that handles the temperature read interval
+  timer.setInterval(READ_INTERVAL * 1000, startSensorRead);
+}
+//-----------------------------------------------
+
+// Synchronize pins when connection comes up
+BLYNK_CONNECTED() {
+  Blynk.syncAll();
 }
 
-void mqttCallback(char* topic, byte* payload, unsigned int length) {
-  Serial.print("Message arrived [");
-  Serial.print(topic);
-  Serial.print("] ");
-  Serial.println();
-  
-  char strPayload[length +1];
-  strPayload[length] = '\0';
-  for(int i=0;i<length;i++){
-    strPayload[i] = payload[i];
+// Set low alert temperature
+BLYNK_WRITE(V_PIN_ALERT_LOW) {
+  alertTempLow = param.asInt();
+}
+
+// Set high alert temperature
+BLYNK_WRITE(V_PIN_ALERT_HIGH) {
+  alertTempHigh = param.asInt();
+}
+
+// Reset minimum and maximum temperatures
+BLYNK_WRITE(V_PIN_MIN_MAX_RESET) {
+  if (param.asInt()) { // if button pressed
+    minTemp = maxTemp = currentTemp;
+    Blynk.virtualWrite(V_PIN_TEMP_MIN, currentTemp);
+    Blynk.virtualWrite(V_PIN_TEMP_MAX, currentTemp);
+  }
+}
+
+// Blink the LED if the connection is down
+void connectionCheck() {
+  if (Blynk.connected()) {
+    return;
   }
 
-  if(strcmp(topic, strcat(MQTT_SUBJECT,"set")) == 0){
-    executeCommand(String(strPayload));
+  indLEDon();
+  delay(LED_DISC_FLASH_TIME);
+  indLEDoff();
+}
+
+// Start a temperature read and the conversion wait timer
+void startSensorRead() {
+  if (!Blynk.connected()) {
+    return;
+  }
+
+  sensors.requestTemperatures();
+  timer.setTimeout(READ_CONV_WAIT, sensorRead);
+}
+
+// Read the temperature from the sensor and perform the appropriate actions
+void sensorRead() {
+  int16_t tempRaw;
+
+  if (!Blynk.connected()) {
+    return;
+  }
+
+  tempRaw = sensors.getTemp(tempSensor);
+  if (tempRaw != DEVICE_DISCONNECTED_RAW) {
+#ifdef TEMP_IN_FAHRENHEIT
+    currentTemp = sensors.rawToFahrenheit(tempRaw);
+#else
+    currentTemp = sensors.rawToCelsius(tempRaw);
+#endif
+
+    // Send temperature value
+    Blynk.virtualWrite(V_PIN_TEMP_A, currentTemp);
+    Blynk.virtualWrite(V_PIN_TEMP_B, currentTemp);
+
+    // Low temperature alerts
+    if ((currentTemp <= alertTempLow) && !lowAlertOn) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_LOW);
+      Blynk.notify(alertMessageLow);
+      lowAlertOn = true;
+    }
+    else if (lowAlertOn && (currentTemp > alertTempLow + ALERT_HYSTERESIS)) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
+      lowAlertOn = false;
+    }
+
+    // High temperature alerts
+    if ((currentTemp >= alertTempHigh) && !highAlertOn) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_HIGH);
+      Blynk.notify(alertMessageHigh);
+      highAlertOn = true;
+    }
+    else if (highAlertOn && (currentTemp < alertTempHigh - ALERT_HYSTERESIS)) {
+      Blynk.setProperty(V_PIN_TEMP_A, "color", ALERT_COLOR_OK);
+      highAlertOn = false;
+    }
+
+    // Minimum and maximum temperatures
+    if (currentTemp < minTemp) {
+      minTemp = currentTemp;
+      Blynk.virtualWrite(V_PIN_TEMP_MIN, currentTemp);
+    }
+    if (currentTemp > maxTemp) {
+      maxTemp = currentTemp;
+      Blynk.virtualWrite(V_PIN_TEMP_MAX, currentTemp);
+    }
+
+    flashLED(LED_READ_OK_FLASH_TIME);
+  }
+  else {
+    flashLED(LED_READ_ERR_FLASH_TIME);
   }
 }
 
-void executeCommand(String command){
-  
-    IRsend irsend(IR_LED_PIN);    
-    Tadiran tadiran(1, 1, 26, 0);
+//--------------------- LOOP --------------------
+void loop() {
+  Blynk.run();
+  timer.run();
+}
+//-----------------------------------------------
 
-
-    char* comma = ",";
-    
-    char cmdBuf[50];
-    command.toCharArray(cmdBuf, 50);
-    int power = atoi(strtok(cmdBuf, comma));
-    int temp = atoi(strtok(NULL, comma));
-    int acMode = atoi(strtok(NULL, comma));
-    int fan = atoi(strtok(NULL, comma));
-        
-    tadiran.setMode(acMode);
-    tadiran.setTemeprature(temp);
-    tadiran.setFan(fan);
-    tadiran.setState(power);
-
-    irsend.sendRaw(tadiran.codes, TADIRAN_BUFFER_SIZE, 38);
-    delay(500);
-    irsend.sendRaw(tadiran.codes, TADIRAN_BUFFER_SIZE, 38);
-    delay(500);
-    irsend.sendRaw(tadiran.codes, TADIRAN_BUFFER_SIZE, 38);
-    //send 3 times to decrease chances of AC not getting msg
-
-    Serial.println("Executed command");    
+// Flash the indicator LED for the specified duration
+void flashLED(long dur) {
+  timer.setTimeout(dur, indLEDoff);
+  indLEDon();
 }
 
-void sendTempratureUpdate(){
-  
-
-    int curTemp = getTemp();
-    char cstr[16];
-    itoa(curTemp, cstr, 10);
-    client.publish(strcat(MQTT_SUBJECT,"ambianceTemp"), cstr);
-
-    
+// Turn on the indicator LED
+void indLEDon() {
+  digitalWrite(LED_PIN, LED_ON);
 }
 
-int getTemp(){
-    int reading = analogRead(TEMP_SENSOR_PIN);  
-    
-    // converting that reading to voltage, for 3.3v arduino use 3.3
-    float voltage = reading * 3.3;
-    voltage /= 1024.0;     
-    float tempratureC = (voltage - 0.5) * 100 ;
-    return round(tempratureC);    
+// Turn off the indicator LED
+void indLEDoff() {
+  digitalWrite(LED_PIN, LED_OFF);
 }
