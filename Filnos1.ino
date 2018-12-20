@@ -4,16 +4,23 @@
 *********/
 
 // Including the ESP8266 WiFi library
+#ifndef UNIT_TEST
+#include <Arduino.h>
+#endif
+#include <IRremoteESP8266.h>
+#include <IRsend.h>
+#include <ir_Samsung.h>
 #include <ESP8266WiFi.h>
 #include <OneWire.h>
 #include <DallasTemperature.h>
 
 // Replace with your network details
-const char* ssid = "REPLACE_WITH_YOUR_SSID";
-const char* password = "REPLACE_WITH_YOUR_PASSWORD";
+const char* ssid = "Vodafone-skynet";
+const char* password = "Rickyale.73";
 
-// Data wire is plugged into pin D2 on the ESP8266 12-E - GPIO 4
-#define ONE_WIRE_BUS 4
+#define ONE_WIRE_BUS 5      // Data wire GPIO pin to use. GPIO5 (D1)
+const uint16_t kIrLed = 4;  // ESP8266 GPIO pin to use. GPIO4 (D2).
+IRSamsungAc ac(kIrLed);    // Set the GPIO to be used to sending the message
 
 // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 OneWire oneWire(ONE_WIRE_BUS);
@@ -21,7 +28,6 @@ OneWire oneWire(ONE_WIRE_BUS);
 // Pass our oneWire reference to Dallas Temperature. 
 DallasTemperature DS18B20(&oneWire);
 char temperatureCString[7];
-char temperatureFString[7];
 
 // Web Server on port 80
 WiFiServer server(80);
@@ -51,7 +57,7 @@ void setup() {
   // Starting the web server
   server.begin();
   Serial.println("Web server running. Waiting for the ESP IP...");
-  delay(10000);
+  delay(5000);
   
   // Printing the ESP IP address
   Serial.println(WiFi.localIP());
@@ -64,8 +70,6 @@ void getTemperature() {
     DS18B20.requestTemperatures(); 
     tempC = DS18B20.getTempCByIndex(0);
     dtostrf(tempC, 2, 2, temperatureCString);
-    tempF = DS18B20.getTempFByIndex(0);
-    dtostrf(tempF, 3, 2, temperatureFString);
     delay(100);
   } while (tempC == 85.0 || tempC == (-127.0));
 }
@@ -91,11 +95,32 @@ void loop() {
             client.println();
             // your actual web page that displays temperature
             client.println("<!DOCTYPE HTML>");
-            client.println("<html>");
-            client.println("<head></head><body><h1>ESP8266 - Temperature</h1><h3>Temperature in Celsius: ");
+            client.println("<HTML>");
+            client.println("<HEAD><TITLE>Da Flinos - Camera da letto</TITLE></HEAD><body><H1>Da Flinos - Camera da letto</H1>Temperatura attuale: ");
             client.println(temperatureCString);
-            client.println("*F</h3></body></html>");  
+            client.println("gradi");  
+            client.println("<br>");  
+            client.println("<a href=\"/?ON\"\">ON</a><br />");
+            client.println("</body></html>");  
             break;
+            if (readString.indexOf("?ON") >0){
+                Serial.println("Sending...");
+
+                // Set up what we want to send. See ir_Samsung.cpp for all the options.
+                ac.on();
+                ac.setFan(kSamsungAcFanAuto);
+                ac.setMode(kSamsungAcCool);
+                ac.setTemp(25);
+                ac.setSwing(false);
+                
+                // Display what we are going to send.
+                Serial.println(ac.toString());
+                // Now send the IR signal.
+                #if SEND_SAMSUNG
+                  ac.send();
+                #endif  // SEND_SAMSUNG
+                delay(5000);
+           }
         }
         if (c == '\n') {
           // when starts reading a new line
@@ -107,8 +132,9 @@ void loop() {
         }
       }
     }  
-    // 
+    // closing the client connection
     delay(1);
-
+    client.stop();
+    Serial.println("Client disconnected.");
   }
 }   
