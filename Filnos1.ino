@@ -15,8 +15,9 @@
 #include <DallasTemperature.h>
 
 // Replace with your network details
-const char* ssid = "Vodafone-skynet";
-const char* password = "Rickyale.73";
+const char* ssid = "********";
+const char* password = "*********";
+
 
 #define ONE_WIRE_BUS 5      // Data wire GPIO pin to use. GPIO5 (D1)
 const uint16_t kIrLed = 4;  // ESP8266 GPIO pin to use. GPIO4 (D2).
@@ -86,7 +87,7 @@ void loop() {
     while (client.connected()) {
       if (client.available()) {
         char c = client.read();
-        
+        Serial.println(c);
         if (c == '\n' && blank_line) {
             getTemperature();
             client.println("HTTP/1.1 200 OK");
@@ -95,13 +96,34 @@ void loop() {
             client.println();
             // your actual web page that displays temperature
             client.println("<!DOCTYPE HTML>");
-            client.println("<HTML>");
-            client.println("<HEAD><TITLE>Da Flinos - Camera da letto</TITLE></HEAD><body><H1>Da Flinos - Camera da letto</H1>Temperatura attuale: ");
+            client.println("<HTML>\r\n");
+            client.println("<head>\r\n");
+            client.println("<title>Camera AC</title>\r\n");
+            client.println("</head>\r\n");
+            client.println("<body>\r\n");
+            client.println("<h2><code>Da Flinos project - Camera da letto</code></h2>\r\n");
+            client.println("\r\n");
+            client.println("<p><code><span style=\"font-size:14px;\">Temperatura attuale</span>&nbsp;
             client.println(temperatureCString);
-            client.println("gradi");  
-            client.println("<br>");  
-            client.println("<a href=\"/?ON\"\">ON</a><br />");
-            client.println("</body></html>");  
+            client.println(" C&deg;&nbsp;</code></p>\r\n"
+            client.println("\r\n");
+            client.println("<p><code>Parametri climatizzatore</code></p>\r\n");
+            client.println("\r\n");
+            client.println("<p><code>Mode &nbsp;
+            client.println(HvacMode);                  
+            client.println("<input name=\"AcMode\" type=\"button\" value=\"Cambia\" /></code></p>\r\n");
+            client.println("\r\n");
+            client.println("<p><code>Temp ");
+            client.println(HvacTemp);                                    
+            client.println(" &nbsp;<input name=\"TempPlus\" type=\"button\" value=\"+\" />&nbsp;<input name=\"TempMinus\" type=\"button\" value=\"-\" /></code></p>\r\n");
+            client.println("\r\n");                  
+            client.println("<p><code>Acc&nbsp; &nbsp;<input name=\"AcOn\" type=\"button\" value=\"ON\" /></code></p>\r\n");
+            client.println("\r\n");
+            client.println("<p><code>Spent&nbsp;<input name=\"AcOff\" type=\"button\" value=\"OFF\" /></code></p>\r\n");
+            client.println("\r\n");
+            client.println("<p><span style=\"font-size:8px;\">Versione 0.1.1</span></p>\r\n");
+            client.println("</body>\r\n");
+            client.println("</html>\r\n");
             break;
             if (readString.indexOf("?ON") >0){
                 Serial.println("Sending...");
