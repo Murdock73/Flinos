@@ -15,10 +15,8 @@
 #include <DallasTemperature.h>
 
 // Replace with your network details
-//const char* ssid = "VodafoneTanaWIFI";
-//const char* password = "vodawifi";
-const char* ssid = "VodafoneEthWIFI";
-const char* password = "_6WFPassword9_";
+const char* ssid = "************";
+const char* password = "****************";
 
 // Variable to store the HTTP request
 String header;
