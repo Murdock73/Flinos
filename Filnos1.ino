@@ -15,11 +15,19 @@
 #include <DallasTemperature.h>
 
 // Replace with your network details
-const char* ssid = "*************";
-const char* password = "***********";
+//const char* ssid = "VodafoneTanaWIFI";
+//const char* password = "vodawifi";
+const char* ssid = "VodafoneEthWIFI";
+const char* password = "_6WFPassword9_";
 
 // Variable to store the HTTP request
 String header;
+
+//Variable to store the room, based on IP
+String roomName;
+
+//Variable to store the IP
+String strIP;
 
 // Auxiliar variables to store the current output state
 String HvacState = "off";
@@ -69,7 +77,12 @@ void setup() {
   delay(5000);
   
   // Printing the ESP IP address
-  Serial.println(WiFi.localIP());
+  strIP=WiFi.localIP().toString().c_str();
+  Serial.println(strIP);
+  if (strIP=="192.168.1.3") {
+    roomName = "Sala";
+    } else {roomName="Camera";}
+  roomName = roomName + " - " + strIP;
 }
 
 void getTemperature() {
@@ -224,7 +237,7 @@ void loop() {
 
                         
             // Web Page Heading
-            client.println("<body><h1>Da Flinos - Camera</h1>");
+            client.println("<body><h1>Da Flino's - " + roomName + "</h1>");
 
             getTemperature();
             client.println("<p>Temperatura attuale </p>");
